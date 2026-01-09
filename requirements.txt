@@ -1,0 +1,32 @@
+# Telegram
+python-telegram-bot==20.5
+
+# Голосовые сообщения
+SpeechRecognition==3.9.0
+pydub==0.25.1
+gtts==2.3.2
+ffmpeg-python==0.2.0
+
+# Дата/время
+python-dateutil==2.8.2
+dateparser==1.1.8
+pytz==2025.2
+tzlocal==5.3.1
+
+# Google Calendar
+google-api-python-client==2.98.0
+google-auth==2.22.0
+google-auth-oauthlib==1.1.0
+requests-oauthlib==2.0.0
+
+# GPT4All
+gpt4all==2.8.2
+tqdm==4.67.1
+future==1.0.0
+
+# HTTP requests
+httpx~=0.24.1
+requests>=2.26.0
+
+# Flask сервер OAuth
+Flask==2.3.3

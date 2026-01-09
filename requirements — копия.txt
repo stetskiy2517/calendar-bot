@@ -1,0 +1,22 @@
+# Telegram bot
+python-telegram-bot==20.5
+
+# Голосовое распознавание
+SpeechRecognition==3.9.0
+pydub==0.25.1
+gtts==2.3.2
+
+# Работа с датами
+python-dateutil==2.8.2
+dateparser==1.1.8
+
+# Google Calendar API
+google-api-python-client==2.98.0
+google-auth==2.22.0
+google-auth-oauthlib==1.1.0
+
+# Локальная модель GPT4All Falcon
+gpt4all==2.8.2
+
+# Дополнительно для ffmpeg (если нужно для конвертации аудио)
+ffmpeg-python==0.2.0
