@@ -1,0 +1,19 @@
+# OAuth / Google
+credentials.json
+token.json
+token_*.json
+tokens/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Audio temp
+*.ogg
+*.wav
+
+# Env
+.env
+
+
