@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 # ---------------- CONFIG ----------------
 TG_TOKEN = "8008795023:AAFiGWPFP1vsNy0wqbBmu-pd1eIl87ZB1eE"
 MODEL_PATH = "/Users/stetskiy/Library/Application Support/nomic.ai/GPT4All/gpt4all-falcon-newbpe-q4_0.gguf"
-OAUTH_SERVER_URL = "http://localhost:5000/auth"
+OAUTH_SERVER_URL = "https://calendar-bot-yrwo.onrender.com"
 
 gpt = GPT4All(MODEL_PATH, allow_download=False)
 
