@@ -1,46 +1,44 @@
 #!/bin/bash
-set -e
 
-echo "Запуск бота..."
+# ----------------- Настройка -----------------
+set -e  # Остановка при ошибках
+echo "🚀 Запуск окружения и зависимостей..."
 
-# 1. Проверяем и создаём виртуальное окружение
-if [ ! -d "venv" ]; then
+# Виртуальное окружение
+if [ -d "venv" ]; then
+    echo "Активируем виртуальное окружение..."
+    source venv/bin/activate
+else
     echo "Создаём виртуальное окружение..."
     python3 -m venv venv
+    source venv/bin/activate
 fi
 
-# 2. Используем интерпретатор из venv
-PYTHON="./venv/bin/python3"
-PIP="./venv/bin/pip"
+# Установка зависимостей
+if [ -f "requirements.txt" ]; then
+    pip install --upgrade pip
+    pip install -r requirements.txt
+else
+    echo "requirements.txt не найден!"
+fi
 
-# 3. Обновляем pip и ставим зависимости
-echo "Устанавливаем зависимости..."
-$PIP install --upgrade pip
-$PIP install -r requirements.txt
-
-# 4. Проверяем ffmpeg
+# Проверка ffmpeg
 if ! command -v ffmpeg &> /dev/null; then
-    echo "ffmpeg не найден! Установите ffmpeg."
+    echo "ffmpeg не найден!"
 else
     echo "ffmpeg найден."
 fi
 
-# 5. Проверка Flask и dateparser в venv
-$PYTHON -c "import flask, dateparser" || {
-    echo "❌ Flask или dateparser не установлены!"
-    exit 1
-}
-
-# 6. Запуск Flask сервера OAuth
+# ----------------- Запуск Flask + Telegram -----------------
 echo "🚀 Запуск Flask сервера авторизации..."
-$PYTHON oauth_server.py &
-
+# Flask сервер в фоне
+python3 oauth_server.py &  # & — запуск в фоне
 FLASK_PID=$!
 
-# 7. Запуск Telegram бота
 echo "🤖 Запуск Telegram бота..."
-$PYTHON telegram_calendar_bot.py
+# Бот в основном потоке
+python3 telegram_calendar_bot.py
 
-# 8. После выхода бота останавливаем Flask сервер
+# ----------------- Завершение -----------------
 echo "🛑 Остановка Flask сервера..."
-kill $FLASK_PID || true
+kill $FLASK_PID
