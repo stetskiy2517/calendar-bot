@@ -129,11 +129,13 @@ def callback():
 # ================= WEBHOOK =================
 @app.route("/telegram/webhook", methods=["POST"])
 def telegram_webhook():
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    asyncio.get_event_loop().create_task(
-        telegram_app.process_update(update)
+    update = Update.de_json(
+        request.get_json(force=True),
+        telegram_app.bot
     )
-    return "OK", 200
+
+    telegram_app.update_queue.put_nowait(update)
+    return "ok"
 
 # ================= START =================
 import threading
