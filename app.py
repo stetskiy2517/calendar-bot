@@ -130,5 +130,7 @@ async def telegram_webhook():
 
 # ---------------- START ----------------
 if __name__ == "__main__":
-    telegram_app.bot.set_webhook(f"{BASE_URL}/telegram/webhook")
+    import asyncio
+asyncio.run(telegram_app.bot.set_webhook(f"{BASE_URL}/telegram/webhook"))
+
     app.run(host="0.0.0.0", port=10000)
