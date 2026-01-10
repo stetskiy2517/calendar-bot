@@ -1,7 +1,8 @@
+flask
 python-telegram-bot>=20.0
-whisper
-pydub
 dateparser
 google-api-python-client
 google-auth
 google-auth-oauthlib
+whisper
+pydub
