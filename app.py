@@ -74,8 +74,40 @@ telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
 # ================= DATE PARSER =================
+import re
+from datetime import datetime, timedelta
+import dateparser
+
+WEEKDAYS = {
+    "понедельник": 0,
+    "вторник": 1,
+    "среда": 2,
+    "четверг": 3,
+    "пятница": 4,
+    "суббота": 5,
+    "воскресенье": 6,
+}
+
 def parse_datetime(text: str) -> datetime:
-    # Пробуем сначала весь текст
+    text = text.lower()
+    now = datetime.now()
+    
+    # Сначала проверяем, есть ли указание дня недели
+    for day_name, day_idx in WEEKDAYS.items():
+        if day_name in text:
+            days_ahead = (day_idx - now.weekday() + 7) % 7
+            if days_ahead == 0:
+                days_ahead = 7  # если сегодня указан день недели, берём следующий
+            # Попытка найти время в тексте
+            time_match = re.search(r"(\d{1,2})[:.]?(\d{0,2})?", text)
+            hour, minute = 9, 0  # по умолчанию 9:00
+            if time_match:
+                hour = int(time_match.group(1))
+                if time_match.group(2) and time_match.group(2).isdigit():
+                    minute = int(time_match.group(2))
+            return (now + timedelta(days=days_ahead)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
+    # Если день недели не найден — используем dateparser
     dt = dateparser.parse(
         text,
         languages=["ru"],
@@ -84,19 +116,8 @@ def parse_datetime(text: str) -> datetime:
     if dt:
         return dt
 
-    # Если не получилось, пробуем удалить все слова кроме чисел и ":" 
-    import re
-    clean_text = " ".join(re.findall(r"\d{1,2}[:.]?\d{0,2}|\bсегодня\b|\bзавтра\b", text.lower()))
-    dt = dateparser.parse(
-        clean_text,
-        languages=["ru"],
-        settings={"PREFER_DATES_FROM": "future"},
-    )
-    if dt:
-        return dt
-
+    # Если ничего не распознано — выбрасываем ошибку
     raise ValueError(f"Не удалось распознать дату из текста: {text}")
-
 
 # ================= GOOGLE CALENDAR =================
 def get_flow():
