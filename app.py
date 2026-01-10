@@ -3,6 +3,12 @@ import json
 import logging
 import asyncio
 import threading
+# В начало файла добавляем импорты для голосового ввода
+from telegram import Voice
+import speech_recognition as sr
+from io import BytesIO
+from pydub import AudioSegment
+
 from datetime import datetime, timedelta
 
 from flask import Flask, request, redirect
@@ -69,9 +75,47 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.exception(e)
         await update.message.reply_text("❌ Ошибка при создании события")
 
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    voice: Voice = update.message.voice
+
+    try:
+        # Скачиваем голосовое сообщение в память
+        voice_file = await context.bot.get_file(voice.file_id)
+        bio = BytesIO()
+        await voice_file.download_to_memory(out=bio)
+        bio.seek(0)
+
+        # Конвертируем OGG в WAV
+        audio = AudioSegment.from_ogg(bio)
+        wav_io = BytesIO()
+        audio.export(wav_io, format="wav")
+        wav_io.seek(0)
+
+        # Распознаем текст
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_io) as source:
+            audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language="ru-RU")
+
+        print(f"VOICE TEXT: {text}")
+
+        # Используем существующую функцию create_event
+        dt = create_event(user_id, text)
+        await update.message.reply_text(
+            f"✅ Событие создано\n🕒 {dt.strftime('%d.%m %H:%M')}"
+        )
+
+    except RuntimeError:
+        await update.message.reply_text(f"🔐 Нужно авторизоваться:\n{BASE_URL}/auth/{user_id}")
+    except Exception as e:
+        logger.exception(e)
+        await update.message.reply_text("❌ Не удалось распознать голос или создать событие")
 
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+telegram_app.add_handler(MessageHandler(filters.VOICE, handle_voice))
+
 
 # ================= DATE PARSER =================
 import re
