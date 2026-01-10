@@ -121,16 +121,39 @@ def callback():
 
     return "✅ Авторизация завершена. Вернись в Telegram."
 
-# ---------------- WEBHOOK ----------------
+# ================== TELEGRAM WEBHOOK ==================
+
+from telegram import Update
+from telegram.ext import Application, MessageHandler, ContextTypes, filters
+
+telegram_app = Application.builder().token(TG_TOKEN).build()
+
+
+async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🤖 Бот работает и принимает сообщения")
+
+
+telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+
 @app.route("/telegram/webhook", methods=["POST"])
-async def telegram_webhook():
-    update = Update.de_json(request.json, telegram_app.bot)
-    await telegram_app.process_update(update)
+def telegram_webhook():
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    telegram_app.update_queue.put_nowait(update)
     return "ok"
 
-# ---------------- START ----------------
+
+# ================== START ==================
+
 if __name__ == "__main__":
     import asyncio
-asyncio.run(telegram_app.bot.set_webhook(f"{BASE_URL}/telegram/webhook"))
+
+    async def startup():
+        await telegram_app.initialize()
+        await telegram_app.bot.set_webhook(f"{BASE_URL}/telegram/webhook")
+        await telegram_app.start()
+
+    asyncio.run(startup())
 
     app.run(host="0.0.0.0", port=10000)
+
