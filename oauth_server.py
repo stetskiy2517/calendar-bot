@@ -1,77 +1,132 @@
 import os
-from flask import Flask, request, redirect, jsonify
+import json
+from flask import Flask, request, redirect
+import telebot
+
 from google_auth_oauthlib.flow import Flow
-from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
+from google.oauth2.credentials import Credentials
+
+# ================== CONFIG ==================
+
+TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
+CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
+CLIENT_SECRET = os.environ["GOOGLE_CLIENT_SECRET"]
+BASE_URL = os.environ.get("RENDER_EXTERNAL_URL")
 
 SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
-app = Flask(__name__)
+TOKENS_FILE = "tokens.json"
 
-# ---------------- HELPER FUNCTIONS ----------------
+# ================== APP ==================
+
+app = Flask(__name__)
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
+
+# ================== STORAGE ==================
+
+def load_tokens():
+    if not os.path.exists(TOKENS_FILE):
+        return {}
+    with open(TOKENS_FILE, "r") as f:
+        return json.load(f)
+
+def save_tokens(tokens):
+    with open(TOKENS_FILE, "w") as f:
+        json.dump(tokens, f)
+
+# ================== GOOGLE OAUTH ==================
+
 def get_flow():
-    creds = json.loads(os.environ["GOOGLE_CREDENTIALS_JSON"])
     return Flow.from_client_config(
-        creds,
+        {
+            "web": {
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+            }
+        },
         scopes=SCOPES,
-        redirect_uri=f"{os.environ['RENDER_EXTERNAL_URL']}/auth/callback"
+        redirect_uri=f"{BASE_URL}/auth/callback",
     )
 
-def save_user_token(user_id: str, creds: Credentials):
-    token_path = f"tokens/{user_id}.json"
-    os.makedirs("tokens", exist_ok=True)
-    with open(token_path, "w") as f:
-        f.write(creds.to_json())
+# ================== TELEGRAM ==================
 
-def load_user_token(user_id: str):
-    token_path = f"tokens/{user_id}.json"
-    if os.path.exists(token_path):
-        return Credentials.from_authorized_user_file(token_path, SCOPES)
-    return None
+@bot.message_handler(content_types=["text"])
+def handle_text(message):
+    user_id = str(message.from_user.id)
+    tokens = load_tokens()
 
-# ---------------- ROUTES ----------------
+    if user_id not in tokens:
+        auth_url = f"{BASE_URL}/auth/{user_id}"
+        bot.reply_to(
+            message,
+            f"🔐 Нужно авторизоваться:\n{auth_url}"
+        )
+        return
+
+    bot.reply_to(message, f"✅ Токен есть. Твое сообщение: {message.text}")
+
+# ================== WEBHOOK ==================
+
+@app.route("/telegram/webhook", methods=["POST"])
+def telegram_webhook():
+    update = telebot.types.Update.de_json(
+        request.data.decode("utf-8")
+    )
+    bot.process_new_updates([update])
+    return "OK", 200
+
+# ================== OAUTH ROUTES ==================
+
 @app.route("/auth/<user_id>")
 def auth(user_id):
-    """Ссылка для пользователя, чтобы пройти авторизацию"""
-    creds = load_user_token(user_id)
-    if creds and creds.valid:
-        return f"✅ Вы уже авторизованы, user_id={user_id}"
     flow = get_flow()
-    auth_url, _ = flow.authorization_url(prompt="consent")
+    auth_url, state = flow.authorization_url(
+        access_type="offline",
+        include_granted_scopes="true",
+        state=user_id,
+        prompt="consent"
+    )
     return redirect(auth_url)
 
 @app.route("/auth/callback")
 def auth_callback():
-    """Обработчик redirect от Google OAuth"""
+    user_id = request.args.get("state")
     code = request.args.get("code")
-    state = request.args.get("state")  # user_id можно передавать через state
-    if not code or not state:
-        return "❌ Ошибка: code или state отсутствует", 400
 
     flow = get_flow()
     flow.fetch_token(code=code)
+
     creds = flow.credentials
-    save_user_token(state, creds)
-    return f"✅ Авторизация завершена! Теперь вернитесь в Telegram. user_id={state}"
 
-# ---------------- MAIN ----------------
+    tokens = load_tokens()
+    tokens[user_id] = {
+        "token": creds.token,
+        "refresh_token": creds.refresh_token,
+        "token_uri": creds.token_uri,
+        "client_id": creds.client_id,
+        "client_secret": creds.client_secret,
+        "scopes": creds.scopes,
+    }
+    save_tokens(tokens)
+
+    bot.send_message(
+        int(user_id),
+        "✅ Авторизация прошла успешно. Можешь писать боту."
+    )
+
+    return "Авторизация завершена. Можешь вернуться в Telegram."
+
+# ================== HEALTH ==================
+
+@app.route("/")
+def health():
+    return "OK", 200
+
+# ================== START ==================
+
 if __name__ == "__main__":
-    # Render задаёт порт через переменную PORT
     port = int(os.environ.get("PORT", 10000))
-    # Render External URL (нужен для OAuth redirect)
-    external_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if not external_url:
-        print("⚠️ Внимание: переменная RENDER_EXTERNAL_URL не задана. Укажите её для корректного OAuth redirect.")
     app.run(host="0.0.0.0", port=port)
-import threading
-import time
-import subprocess
-
-def start_telegram_bot():
-    time.sleep(2)  # даём Flask стартануть
-    subprocess.Popen(["python3", "telegram_calendar_bot.py"])
-
-if __name__ == "__main__":
-    threading.Thread(target=start_telegram_bot, daemon=True).start()
-    app.run(host="0.0.0.0", port=10000)
-
