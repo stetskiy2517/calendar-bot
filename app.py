@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import asyncio
 from datetime import datetime, timedelta
 
 from flask import Flask, request, redirect
@@ -9,6 +10,7 @@ from telegram.ext import (
     Application,
     ContextTypes,
     MessageHandler,
+    CommandHandler,
     filters,
 )
 
@@ -17,10 +19,10 @@ from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-# ---------------- CONFIG ----------------
+# ================= CONFIG =================
 TG_TOKEN = os.environ["TG_TOKEN"]
-SCOPES = ["https://www.googleapis.com/auth/calendar"]
 BASE_URL = os.environ["RENDER_EXTERNAL_URL"]
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
 
 logging.basicConfig(level=logging.INFO)
 
@@ -28,7 +30,7 @@ app = Flask(__name__)
 
 telegram_app = Application.builder().token(TG_TOKEN).build()
 
-# ---------------- DATE PARSER ----------------
+# ================= DATE =================
 def parse_datetime(text: str) -> datetime:
     dt = dateparser.parse(
         text,
@@ -36,24 +38,23 @@ def parse_datetime(text: str) -> datetime:
         settings={"PREFER_DATES_FROM": "future"},
     )
     if not dt:
-        raise ValueError("Не удалось распознать дату и время")
+        raise ValueError("Не удалось распознать дату")
     return dt
 
-# ---------------- GOOGLE ----------------
+# ================= GOOGLE =================
 def get_flow():
     client_config = json.loads(os.environ["GOOGLE_CLIENT_CONFIG"])
     return Flow.from_client_config(
         client_config,
         scopes=SCOPES,
-        redirect_uri=f"{BASE_URL}/auth/callback"
+        redirect_uri=f"{BASE_URL}/auth/callback",
     )
 
 def get_calendar_service(user_id: int):
-    token_path = f"tokens/{user_id}.json"
-    if not os.path.exists(token_path):
+    path = f"tokens/{user_id}.json"
+    if not os.path.exists(path):
         return None
-
-    creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+    creds = Credentials.from_authorized_user_file(path, SCOPES)
     return build("calendar", "v3", credentials=creds)
 
 def create_event(user_id: int, text: str):
@@ -75,7 +76,12 @@ def create_event(user_id: int, text: str):
     service.events().insert(calendarId="primary", body=event).execute()
     return start
 
-# ---------------- TELEGRAM ----------------
+# ================= TELEGRAM =================
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "👋 Я календарь-бот.\nНапиши: «Завтра в 15 встреча»"
+    )
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
@@ -86,20 +92,19 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Событие создано\n🕒 {dt.strftime('%d.%m %H:%M')}"
         )
     except RuntimeError:
-        auth_url = f"{BASE_URL}/auth/{user_id}"
         await update.message.reply_text(
-            f"🔐 Нужно авторизоваться:\n{auth_url}"
+            f"🔐 Нужно авторизоваться:\n{BASE_URL}/auth/{user_id}"
         )
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
+telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-# ---------------- OAUTH ----------------
+# ================= OAUTH =================
 @app.route("/auth/<int:user_id>")
 def auth(user_id):
     flow = get_flow()
-    flow.authorization_url(state=str(user_id), prompt="consent")
     url, _ = flow.authorization_url(
         state=str(user_id),
         prompt="consent",
@@ -121,39 +126,23 @@ def callback():
 
     return "✅ Авторизация завершена. Вернись в Telegram."
 
-# ================== TELEGRAM WEBHOOK ==================
-
-from telegram import Update
-from telegram.ext import Application, MessageHandler, ContextTypes, filters
-
-telegram_app = Application.builder().token(TG_TOKEN).build()
-
-
-async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("🤖 Бот работает и принимает сообщения")
-
-
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-
+# ================= WEBHOOK =================
 @app.route("/telegram/webhook", methods=["POST"])
 def telegram_webhook():
     update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    telegram_app.update_queue.put_nowait(update)
-    return "ok"
+    asyncio.get_event_loop().create_task(
+        telegram_app.process_update(update)
+    )
+    return "OK", 200
 
-
-# ================== START ==================
-
-if __name__ == "__main__":
-    import asyncio
-
-    async def startup():
+# ================= START =================
+@app.before_first_request
+def startup():
+    async def init():
         await telegram_app.initialize()
         await telegram_app.bot.set_webhook(f"{BASE_URL}/telegram/webhook")
         await telegram_app.start()
+    asyncio.get_event_loop().create_task(init())
 
-    asyncio.run(startup())
-
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
-
