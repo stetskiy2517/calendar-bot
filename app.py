@@ -3,11 +3,11 @@ import json
 import logging
 import asyncio
 import threading
+import re
 from datetime import datetime, timedelta
-from io import BytesIO
 
 from flask import Flask, request, redirect
-from telegram import Update, Voice
+from telegram import Update
 from telegram.ext import (
     Application,
     ContextTypes,
@@ -15,15 +15,13 @@ from telegram.ext import (
     CommandHandler,
     filters,
 )
-
 import dateparser
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-# Для голосового ввода
-import whisper
 from pydub import AudioSegment
+import whisper
 
 # ================= CONFIG =================
 TG_TOKEN = os.environ["TG_TOKEN"]
@@ -49,12 +47,7 @@ threading.Thread(target=start_loop, args=(event_loop,), daemon=True).start()
 # ================= TELEGRAM =================
 telegram_app = Application.builder().token(TG_TOKEN).build()
 
-# ================= WHISPER MODEL =================
-whisper_model = whisper.load_model("base")  # можно "small" или "medium" для точности
-
 # ================= DATE PARSER =================
-import re
-
 WEEKDAYS = {
     "понедельник": 0,
     "вторник": 1,
@@ -65,26 +58,29 @@ WEEKDAYS = {
     "воскресенье": 6,
 }
 
+
 def parse_datetime(text: str) -> datetime:
     text = text.lower()
     now = datetime.now()
-
-    # Проверяем день недели
+    
+    # Сначала проверяем, есть ли указание дня недели
     for day_name, day_idx in WEEKDAYS.items():
         if day_name in text:
             days_ahead = (day_idx - now.weekday() + 7) % 7
             if days_ahead == 0:
                 days_ahead = 7
-            # Ищем время
+            # Попытка найти время в тексте
             time_match = re.search(r"(\d{1,2})[:.]?(\d{0,2})?", text)
             hour, minute = 9, 0
             if time_match:
                 hour = int(time_match.group(1))
                 if time_match.group(2) and time_match.group(2).isdigit():
                     minute = int(time_match.group(2))
-            return (now + timedelta(days=days_ahead)).replace(hour=hour, minute=minute, second=0, microsecond=0)
-
-    # Используем dateparser
+            return (now + timedelta(days=days_ahead)).replace(
+                hour=hour, minute=minute, second=0, microsecond=0
+            )
+    
+    # Если день недели не найден — используем dateparser
     dt = dateparser.parse(
         text,
         languages=["ru"],
@@ -104,12 +100,14 @@ def get_flow():
         redirect_uri=f"{BASE_URL}/auth/callback",
     )
 
+
 def get_calendar_service(user_id: int):
     path = f"tokens/{user_id}.json"
     if not os.path.exists(path):
         return None
     creds = Credentials.from_authorized_user_file(path, SCOPES)
     return build("calendar", "v3", credentials=creds)
+
 
 def create_event(user_id: int, text: str):
     service = get_calendar_service(user_id)
@@ -130,14 +128,25 @@ def create_event(user_id: int, text: str):
     service.events().insert(calendarId="primary", body=event).execute()
     return start
 
+# ================= WHISPER =================
+whisper_model = whisper.load_model("tiny")  # можно выбрать другую модель
+
+def transcribe_audio(file_path: str) -> str:
+    """Конвертирует аудио в WAV и распознаёт текст через Whisper"""
+    wav_path = file_path + ".wav"
+    audio = AudioSegment.from_file(file_path)
+    audio.export(wav_path, format="wav")
+    result = whisper_model.transcribe(wav_path)
+    return result["text"]
+
 # ================= TELEGRAM HANDLERS =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Я календарь-бот.\nНапиши или отправь голосовое сообщение: «Завтра в 15 встреча»"
+        "👋 Я календарь-бот.\nНапиши текст или отправь голосовое сообщение, например: «Завтра в 15 встреча»"
     )
 
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(f"HANDLE TEXT: {update.effective_user.id} -> {update.message.text}")
     user_id = update.effective_user.id
     text = update.message.text
 
@@ -147,37 +156,35 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"✅ Событие создано\n🕒 {dt.strftime('%d.%m %H:%M')}"
         )
     except RuntimeError:
-        await update.message.reply_text(
-            f"🔐 Нужно авторизоваться:\n{BASE_URL}/auth/{user_id}"
-        )
+        await update.message.reply_text(f"🔐 Нужно авторизоваться:\n{BASE_URL}/auth/{user_id}")
     except Exception as e:
         logger.exception(e)
         await update.message.reply_text("❌ Ошибка при создании события")
 
+
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    voice: Voice = update.message.voice
+    voice = update.message.voice
+    if not voice:
+        await update.message.reply_text("❌ Нет голосового сообщения")
+        return
 
-    # Скачиваем голосовое сообщение
-    file = await context.bot.get_file(voice.file_id)
-    bio = BytesIO()
-    await file.download_to_memory(out=bio)
-    bio.seek(0)
+    try:
+        file = await context.bot.get_file(voice.file_id)
+        ogg_path = f"voice_{user_id}.ogg"
+        await file.download_to_drive(ogg_path)
 
-    # Конвертируем ogg -> wav через pydub
-    audio = AudioSegment.from_ogg(bio)
-    wav_io = BytesIO()
-    audio.export(wav_io, format="wav")
-    wav_io.seek(0)
+        text = transcribe_audio(ogg_path)
+        dt = create_event(user_id, text)
+        await update.message.reply_text(
+            f"🎤 Распознано: {text}\n✅ Событие создано\n🕒 {dt.strftime('%d.%m %H:%M')}"
+        )
+    except RuntimeError:
+        await update.message.reply_text(f"🔐 Нужно авторизоваться:\n{BASE_URL}/auth/{user_id}")
+    except Exception as e:
+        logger.exception(e)
+        await update.message.reply_text("❌ Ошибка при обработке голосового сообщения")
 
-    # Распознаём голос через Whisper
-    result = whisper_model.transcribe(wav_io)
-    text = result["text"].strip()
-    print(f"VOICE -> TEXT: {text}")
-
-    # Передаем текст дальше
-    update.message.text = text
-    await handle_text(update, context)
 
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
@@ -193,6 +200,7 @@ def auth(user_id):
         access_type="offline",
     )
     return redirect(url)
+
 
 @app.route("/auth/callback")
 def callback():
@@ -225,7 +233,6 @@ def telegram_webhook():
 
 # ================= START =================
 if __name__ == "__main__":
-
     async def startup():
         await telegram_app.initialize()
         await telegram_app.start()
