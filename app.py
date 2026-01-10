@@ -3,6 +3,20 @@ import json
 import logging
 import asyncio
 import asyncio
+import asyncio
+import threading
+
+event_loop = asyncio.new_event_loop()
+
+def start_loop(loop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+threading.Thread(
+    target=start_loop,
+    args=(event_loop,),
+    daemon=True
+).start()
 
 event_loop = asyncio.new_event_loop()
 asyncio.set_event_loop(event_loop)
@@ -88,6 +102,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    print("HANDLE TEXT:", update.message.text)
     user_id = update.effective_user.id
     text = update.message.text
 
@@ -140,11 +155,13 @@ def telegram_webhook():
         telegram_app.bot
     )
 
-    event_loop.create_task(
+    event_loop.call_soon_threadsafe(
+        asyncio.create_task,
         telegram_app.process_update(update)
     )
 
     return "ok"
+
 
 
 
