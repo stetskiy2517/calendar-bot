@@ -9,6 +9,17 @@ from google.oauth2.credentials import Credentials
 from flask import Flask, request
 import telebot
 import os
+import json
+from google_auth_oauthlib.flow import Flow
+
+def get_flow():
+    client_config = json.loads(os.environ["GOOGLE_CLIENT_CONFIG"])
+    return Flow.from_client_config(
+        client_config,
+        scopes=SCOPES,
+        redirect_uri=f"{os.environ['RENDER_EXTERNAL_URL']}/auth/callback"
+    )
+
 
 BOT_TOKEN = os.environ["BOT_TOKEN"]
 bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
