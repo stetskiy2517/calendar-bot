@@ -133,22 +133,20 @@ def telegram_webhook():
         request.get_json(force=True),
         telegram_app.bot
     )
-
     telegram_app.update_queue.put_nowait(update)
     return "ok"
 
+
 # ================= START =================
-import threading
-
-def start_telegram():
-    async def runner():
-        await telegram_app.initialize()
-        await telegram_app.bot.set_webhook(f"{BASE_URL}/telegram/webhook")
-        await telegram_app.start()
-
-    asyncio.run(runner())
-
-threading.Thread(target=start_telegram).start()
-
 if __name__ == "__main__":
+    import asyncio
+
+    async def startup():
+        await telegram_app.initialize()
+        await telegram_app.start()
+        await telegram_app.bot.set_webhook(f"{BASE_URL}/telegram/webhook")
+
+    asyncio.run(startup())
+
     app.run(host="0.0.0.0", port=10000)
+
