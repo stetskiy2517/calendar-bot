@@ -75,14 +75,28 @@ telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_
 
 # ================= DATE PARSER =================
 def parse_datetime(text: str) -> datetime:
+    # Пробуем сначала весь текст
     dt = dateparser.parse(
         text,
         languages=["ru"],
         settings={"PREFER_DATES_FROM": "future"},
     )
-    if not dt:
-        raise ValueError("Не удалось распознать дату")
-    return dt
+    if dt:
+        return dt
+
+    # Если не получилось, пробуем удалить все слова кроме чисел и ":" 
+    import re
+    clean_text = " ".join(re.findall(r"\d{1,2}[:.]?\d{0,2}|\bсегодня\b|\bзавтра\b", text.lower()))
+    dt = dateparser.parse(
+        clean_text,
+        languages=["ru"],
+        settings={"PREFER_DATES_FROM": "future"},
+    )
+    if dt:
+        return dt
+
+    raise ValueError(f"Не удалось распознать дату из текста: {text}")
+
 
 # ================= GOOGLE CALENDAR =================
 def get_flow():
