@@ -8,7 +8,6 @@ from datetime import datetime, timedelta
 from tempfile import NamedTemporaryFile
 
 from flask import Flask, request, redirect
-from telegram import Update
 from telegram.ext import (
     Application,
     ContextTypes,
