@@ -2,6 +2,11 @@ import os
 import json
 import logging
 import asyncio
+import asyncio
+
+event_loop = asyncio.new_event_loop()
+asyncio.set_event_loop(event_loop)
+
 from datetime import datetime, timedelta
 
 from flask import Flask, request, redirect
@@ -96,7 +101,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔐 Нужно авторизоваться:\n{BASE_URL}/auth/{user_id}"
         )
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка: {e}")
+        logger.exception(e)
+        await update.message.reply_text("❌ Ошибка при создании события")
 
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
@@ -134,10 +140,12 @@ def telegram_webhook():
         telegram_app.bot
     )
 
-    import asyncio
-    asyncio.run(telegram_app.process_update(update))
+    event_loop.create_task(
+        telegram_app.process_update(update)
+    )
 
     return "ok"
+
 
 
 # ================= START =================
