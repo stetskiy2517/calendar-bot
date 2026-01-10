@@ -63,3 +63,15 @@ if __name__ == "__main__":
     if not external_url:
         print("⚠️ Внимание: переменная RENDER_EXTERNAL_URL не задана. Укажите её для корректного OAuth redirect.")
     app.run(host="0.0.0.0", port=port)
+import threading
+import time
+import subprocess
+
+def start_telegram_bot():
+    time.sleep(2)  # даём Flask стартануть
+    subprocess.Popen(["python3", "telegram_calendar_bot.py"])
+
+if __name__ == "__main__":
+    threading.Thread(target=start_telegram_bot, daemon=True).start()
+    app.run(host="0.0.0.0", port=10000)
+
