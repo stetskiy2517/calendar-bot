@@ -133,7 +133,10 @@ def telegram_webhook():
         request.get_json(force=True),
         telegram_app.bot
     )
-    telegram_app.update_queue.put_nowait(update)
+
+    import asyncio
+    asyncio.run(telegram_app.process_update(update))
+
     return "ok"
 
 
