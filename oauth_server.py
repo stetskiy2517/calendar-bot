@@ -6,6 +6,27 @@ import telebot
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
+from flask import Flask, request
+import telebot
+import os
+
+BOT_TOKEN = os.environ["BOT_TOKEN"]
+bot = telebot.TeleBot(BOT_TOKEN, threaded=False)
+
+@app.route("/telegram/webhook", methods=["POST"])
+def telegram_webhook():
+    update = telebot.types.Update.de_json(
+        request.get_json(force=True), bot
+    )
+    bot.process_new_updates([update])
+    return "OK", 200
+@bot.message_handler(content_types=["text"])
+def handle_text(message):
+    bot.send_message(
+        message.chat.id,
+        "✅ Бот жив. Авторизация проверяется."
+    )
+
 
 # ================== CONFIG ==================
 
