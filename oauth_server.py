@@ -10,11 +10,11 @@ app = Flask(__name__)
 
 # ---------------- HELPER FUNCTIONS ----------------
 def get_flow():
-    """Создаёт Flow для OAuth"""
-    return Flow.from_client_secrets_file(
-        'credentials.json',
+    creds = json.loads(os.environ["GOOGLE_CREDENTIALS_JSON"])
+    return Flow.from_client_config(
+        creds,
         scopes=SCOPES,
-        redirect_uri=f"{os.environ.get('RENDER_EXTERNAL_URL')}/auth/callback"
+        redirect_uri=f"{os.environ['RENDER_EXTERNAL_URL']}/auth/callback"
     )
 
 def save_user_token(user_id: str, creds: Credentials):
