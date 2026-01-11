@@ -3,11 +3,7 @@ import json
 import logging
 import asyncio
 import threading
-# В начало файла добавляем импорты для голосового ввода
-from telegram import Voice
-import speech_recognition as sr
-from io import BytesIO
-from pydub import AudioSegment
+
 
 from datetime import datetime, timedelta
 
