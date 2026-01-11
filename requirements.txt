@@ -1,5 +1,5 @@
 flask
-python-telegram-bot==20.6
+python-telegram-bot==21.7
 google-auth
 google-auth-oauthlib
 google-api-python-client
