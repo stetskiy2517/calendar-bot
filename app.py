@@ -43,7 +43,13 @@ def start_loop(loop):
 threading.Thread(target=start_loop, args=(event_loop,), daemon=True).start()
 
 # ================= TELEGRAM =================
-telegram_app = Application.builder().token(TG_TOKEN).build()
+telegram_app = (
+    Application.builder()
+    .token(TG_TOKEN)
+    .concurrent_updates(False)
+    .build()
+)
+
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
