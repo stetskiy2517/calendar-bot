@@ -7,3 +7,4 @@ dateparser
 whisper
 ffmpeg-python
 pydub
+httpx
