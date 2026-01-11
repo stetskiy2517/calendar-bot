@@ -3,11 +3,16 @@ import json
 import logging
 import asyncio
 import threading
-import subprocess
+# В начало файла добавляем импорты для голосового ввода
+from telegram import Voice
+import speech_recognition as sr
+from io import BytesIO
+from pydub import AudioSegment
+
 from datetime import datetime, timedelta
-from tempfile import NamedTemporaryFile
 
 from flask import Flask, request, redirect
+from telegram import Update
 from telegram.ext import (
     Application,
     ContextTypes,
@@ -43,18 +48,12 @@ def start_loop(loop):
 threading.Thread(target=start_loop, args=(event_loop,), daemon=True).start()
 
 # ================= TELEGRAM =================
-telegram_app = (
-    Application.builder()
-    .token(TG_TOKEN)
-    .concurrent_updates(False)
-    .build()
-)
-
+telegram_app = Application.builder().token(TG_TOKEN).build()
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 Я календарь-бот.\nНапиши текст или отправь голосовое сообщение"
+        "👋 Я календарь-бот.\nНапиши: «Завтра в 15 встреча»"
     )
 
 
@@ -74,50 +73,55 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     except Exception as e:
         logger.exception(e)
-        await update.message.reply_text(f"❌ Ошибка: {e}")
-
+        await update.message.reply_text("❌ Ошибка при создании события")
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    file = await update.message.voice.get_file()
-    with NamedTemporaryFile(suffix=".ogg") as temp_ogg:
-        await file.download_to_drive(temp_ogg.name)
+    voice: Voice = update.message.voice
 
-        # Конвертируем ogg -> wav через ffmpeg
-        with NamedTemporaryFile(suffix=".wav") as temp_wav:
-            subprocess.run(
-                ["ffmpeg", "-y", "-i", temp_ogg.name, temp_wav.name],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-
-            # Используем Whisper
-            import whisper
-            model = whisper.load_model("base")
-            result = model.transcribe(temp_wav.name)
-            text = result["text"]
-
-    await update.message.reply_text(f"📝 Распознан текст:\n{text}")
-    # После распознавания создаём событие
     try:
+        # Скачиваем голосовое сообщение в память
+        voice_file = await context.bot.get_file(voice.file_id)
+        bio = BytesIO()
+        await voice_file.download_to_memory(out=bio)
+        bio.seek(0)
+
+        # Конвертируем OGG в WAV
+        audio = AudioSegment.from_ogg(bio)
+        wav_io = BytesIO()
+        audio.export(wav_io, format="wav")
+        wav_io.seek(0)
+
+        # Распознаем текст
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_io) as source:
+            audio_data = recognizer.record(source)
+            text = recognizer.recognize_google(audio_data, language="ru-RU")
+
+        print(f"VOICE TEXT: {text}")
+
+        # Используем существующую функцию create_event
         dt = create_event(user_id, text)
         await update.message.reply_text(
             f"✅ Событие создано\n🕒 {dt.strftime('%d.%m %H:%M')}"
         )
+
     except RuntimeError:
-        await update.message.reply_text(
-            f"🔐 Нужно авторизоваться:\n{BASE_URL}/auth/{user_id}"
-        )
+        await update.message.reply_text(f"🔐 Нужно авторизоваться:\n{BASE_URL}/auth/{user_id}")
     except Exception as e:
         logger.exception(e)
-        await update.message.reply_text(f"❌ Ошибка при создании события: {e}")
-
+        await update.message.reply_text("❌ Не удалось распознать голос или создать событие")
 
 telegram_app.add_handler(CommandHandler("start", start))
 telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 telegram_app.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
+
 # ================= DATE PARSER =================
+import re
+from datetime import datetime, timedelta
+import dateparser
+
 WEEKDAYS = {
     "понедельник": 0,
     "вторник": 1,
@@ -128,39 +132,36 @@ WEEKDAYS = {
     "воскресенье": 6,
 }
 
-
 def parse_datetime(text: str) -> datetime:
     text = text.lower()
     now = datetime.now()
-
+    
     # Сначала проверяем, есть ли указание дня недели
     for day_name, day_idx in WEEKDAYS.items():
         if day_name in text:
             days_ahead = (day_idx - now.weekday() + 7) % 7
             if days_ahead == 0:
-                days_ahead = 7
-            # Попытка найти время
-            import re
-
+                days_ahead = 7  # если сегодня указан день недели, берём следующий
+            # Попытка найти время в тексте
             time_match = re.search(r"(\d{1,2})[:.]?(\d{0,2})?", text)
-            hour, minute = 9, 0
+            hour, minute = 9, 0  # по умолчанию 9:00
             if time_match:
                 hour = int(time_match.group(1))
                 if time_match.group(2) and time_match.group(2).isdigit():
                     minute = int(time_match.group(2))
-            return (now + timedelta(days=days_ahead)).replace(
-                hour=hour, minute=minute, second=0, microsecond=0
-            )
-
+            return (now + timedelta(days=days_ahead)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
     # Если день недели не найден — используем dateparser
     dt = dateparser.parse(
-        text, languages=["ru"], settings={"PREFER_DATES_FROM": "future"}
+        text,
+        languages=["ru"],
+        settings={"PREFER_DATES_FROM": "future"},
     )
     if dt:
         return dt
 
+    # Если ничего не распознано — выбрасываем ошибку
     raise ValueError(f"Не удалось распознать дату из текста: {text}")
-
 
 # ================= GOOGLE CALENDAR =================
 def get_flow():
@@ -199,13 +200,14 @@ def create_event(user_id: int, text: str):
     service.events().insert(calendarId="primary", body=event).execute()
     return start
 
-
 # ================= OAUTH =================
 @app.route("/auth/<int:user_id>")
 def auth(user_id):
     flow = get_flow()
     url, _ = flow.authorization_url(
-        state=str(user_id), prompt="consent", access_type="offline"
+        state=str(user_id),
+        prompt="consent",
+        access_type="offline",
     )
     return redirect(url)
 
@@ -224,18 +226,21 @@ def callback():
 
     return "✅ Авторизация завершена. Вернись в Telegram."
 
-
 # ================= WEBHOOK =================
 @app.route("/telegram/webhook", methods=["POST"])
 def telegram_webhook():
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    update = Update.de_json(
+        request.get_json(force=True),
+        telegram_app.bot
+    )
 
+    # Отправляем обработку в отдельный event loop
     event_loop.call_soon_threadsafe(
-        asyncio.create_task, telegram_app.process_update(update)
+        asyncio.create_task,
+        telegram_app.process_update(update)
     )
 
     return "ok"
-
 
 # ================= START =================
 if __name__ == "__main__":

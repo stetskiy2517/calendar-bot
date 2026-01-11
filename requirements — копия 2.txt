@@ -1,8 +1,0 @@
-flask==3.0.2
-python-telegram-bot==21.6
-google-auth
-google-auth-oauthlib
-google-api-python-client
-dateparser
-SpeechRecognition==3.11.0
-pydub==0.25.1
